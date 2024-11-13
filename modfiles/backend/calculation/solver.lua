@@ -244,10 +244,15 @@ function solver.generate_factory_data(player, factory)
     }
 
     for product in factory:iterator() do
+        local proto = product.proto
+        -- Remove temperature from name since this is treated as an ingredient in a sense
+        local name = (proto.temperature) and string.gsub(proto.name, "%-+[0-9]+$", "") or proto.name
         local product_data = {
-            name = product.proto.name,
-            type = product.proto.type,
-            amount = product:get_required_amount()
+            name = name,
+            type = proto.type,
+            amount = product:get_required_amount(),
+            minimum_temperature = proto.temperature or nil,
+            maximum_temperature = proto.temperature or nil
         }
         table.insert(factory_data.top_level_products, product_data)
     end

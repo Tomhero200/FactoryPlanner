@@ -12,9 +12,14 @@ local function update_line(line_data, aggregate)
     -- Determine relevant products
     local relevant_products, byproducts = {}, {}
     for _, product in pairs(recipe_proto.products) do
-        local ingredient = structures.class.find(aggregate.Ingredient, product)
-        if ingredient then relevant_products[product] = ingredient.amount
-        else table.insert(byproducts, product) end
+        local items = structures.class.match(aggregate.Ingredient, product)
+        if #items == 0 then
+            table.insert(byproducts, product)
+        else
+            local total_amount = 0
+            for _, item in pairs(items) do total_amount = total_amount + item.amount end
+            relevant_products[product] = total_amount
+         end
     end
 
     local production_ratio = 0
@@ -88,7 +93,7 @@ local function update_line(line_data, aggregate)
         end
 
         structures.class.add(Product, product, product_amount)
-        structures.class.subtract(aggregate.Ingredient, product, product_amount)
+        structures.class.match_subtract(aggregate.Ingredient, product, product_amount)
     end
 
     -- Determine ingredients
@@ -98,13 +103,16 @@ local function update_line(line_data, aggregate)
         structures.class.add(Ingredient, ingredient, ingredient_amount)
 
         -- Reduce line-byproducts and -ingredients so only the net amounts remain
-        local byproduct = structures.class.find(Byproduct, ingredient)
-        if byproduct ~= nil then
+        local byproduct = structures.class.find(Byproduct, ingredient)  -- TODO needs to match any fitting byproducts
+        -- TODO could this be done via balance_items? floor balancing maybe does it that way?
+        --[[ if byproduct ~= nil then
             structures.class.subtract(Byproduct, ingredient, ingredient_amount)
             structures.class.subtract(Ingredient, ingredient, byproduct.amount)
-        end
+        end ]]
+
+        structures.class.add(aggregate.Ingredient, ingredient, ingredient_amount)   -- TODO temp. balance_ replacement
     end
-    structures.class.balance_items(Ingredient, aggregate.Byproduct, aggregate.Ingredient)
+    --structures.class.balance_items(Ingredient, aggregate.Byproduct, aggregate.Ingredient)  -- TODO needs updating
 
 
     -- Determine machine count
@@ -123,12 +131,9 @@ local function update_line(line_data, aggregate)
         fuel_amount = solver_util.determine_fuel_amount(energy_consumption, machine_proto.burner,
             fuel_proto.fuel_value)
 
-        local fuel_class = structures.class.init()
-        local fuel = {type=fuel_proto.type, name=fuel_proto.name, amount=fuel_amount}
-        structures.class.add(fuel_class, fuel)
-
-        -- Add fuel to the aggregate, consuming this line's byproducts first, if possible
-        structures.class.balance_items(fuel_class, aggregate.Byproduct, aggregate.Ingredient)
+        local fuel_item = {type=fuel_proto.type, name=fuel_proto.name, amount=fuel_amount}
+        structures.class.add(aggregate.Ingredient, fuel_item)  -- add to floor
+        -- Fuel is set via a special amount variable on the line itself
 
         if fuel_proto.burnt_result then
             local burnt = {type="item", name=fuel_proto.burnt_result, amount=fuel_amount}
@@ -217,13 +222,31 @@ local function update_floor(floor_data, aggregate)
         end
     end
 
-    -- Desired products that aren't ingredients anymore have been produced
+    -- NOTE: This satisfies the later products first instead of the opposite
+    --       Iterate this outer loop in reverse to make it work the other way around
+    local ingredients = ftable.deep_copy(aggregate.Ingredient)
+    for _, desired_product in pairs(desired_products) do
+        local matches = structures.class.match(ingredients, desired_product)
+        if next(matches) == nil then  -- no matches means it's fully produced
+            structures.class.add(aggregate.Product, desired_product)
+        else  -- If not fully produced, collect and process collectively
+            local total_produced = 0
+            for _, match in pairs(matches) do
+                local produced_amount = math.min(desired_product.amount-total_produced, match.amount)
+                structures.class.subtract(ingredients, match, produced_amount)
+                total_produced = total_produced + produced_amount
+            end
+            structures.class.add(aggregate.Product, desired_product, desired_product.amount-total_produced)
+        end
+    end
+
+    --[[ -- Desired products that aren't ingredients anymore have been produced
     for _, desired_product in pairs(desired_products) do
         local ingredient_match = structures.class.find(aggregate.Ingredient, desired_product)
         local ingredient_amount = (ingredient_match) and ingredient_match.amount or 0
         local produced_amount = desired_product.amount - ingredient_amount
         structures.class.add(aggregate.Product, desired_product, produced_amount)
-    end
+    end ]]
 end
 
 

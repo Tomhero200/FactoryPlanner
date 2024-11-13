@@ -646,6 +646,11 @@ function matrix_engine.get_line_aggregate(line_data, player_index, floor_id, mac
             structures.class.add(line_aggregate.Ingredient, fuel, fuel_amount)
         end
 
+        if fuel_proto.burnt_result then
+            local burnt = {type="item", name=fuel_proto.burnt_result, amount=fuel_amount}
+            structures.class.add(line_aggregate.Byproduct, burnt)
+        end
+
         energy_consumption = 0  -- set electrical consumption to 0 when fuel is used
 
     elseif line_data.machine_proto.energy_type == "void" then
